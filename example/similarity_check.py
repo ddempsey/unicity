@@ -14,7 +14,7 @@ def similarity_check_with_template():
     # run similarity check on whole file, using template file and 2 cpus
     comp = proj.compare('functions.py', template='functions_template.py', ncpus=2)
     # plot anonymised similarity check
-    proj.similarity_report(comp, client = 'anon', save = 'report_w_template.png')
+    proj.similarity_report(comp, save = 'report_w_template.png')
 
 def similarity_check_prior_project():
     # load a Project
@@ -80,9 +80,9 @@ def similarity_check_wildcard():
     proj.similarity_report(comp)
 
 if __name__ == "__main__":
-    similarity_check()
+    #similarity_check()
     
-    #similarity_check_with_template()
+    similarity_check_with_template()
 
     #similarity_check_prior_project()
     

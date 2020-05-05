@@ -456,12 +456,12 @@ class Project(object):
         ''' Separates off working directory and root file name.
         '''
         if self._projdir is not None:
-            self._work_dir = os.sep.join(self._projdir.split(os.sep)[:-1])
+            self._work_dir = os.sep.join(re.split(r'/|\\',self._projdir)[:-1])
         else:
             self._work_dir = os.path.dirname(self._projzip)
         if self._root is None:
             if self._projdir is not None:
-                self._root = self._projdir.split(os.sep)[-1]
+                self._root = re.split(r'/|\\',self._projdir)[-1]
             else:
                 self._root = os.path.splitext(os.path.basename(self._projzip))[0]
     def _get_file_name(self, filetype, subtype = None):
@@ -491,7 +491,7 @@ class Project(object):
         if max([_check_fuzzy_ratio(fl, ignore) for ignore in self._ignore_files])>75:
             return
         # raise error
-        raise TypeError('unexpected file: {:s}'.format(fl.split(os.sep)[-1]))
+        raise TypeError('unexpected file: {:s}'.format(re.split(r'/|\\',fl)[-1]))
     def _load(self):
         ''' Parse zipfile containing portfolios.
         '''
@@ -502,8 +502,29 @@ class Project(object):
         else:
             zf = zipfile.ZipFile(self._projzip)
             fls = [fl.filename for fl in zf.filelist]
+
+        self._load_files(fls, zf)
+
+        # sort clients alphabetically 
+        self.clientlist = sorted(self.clientlist, key = lambda x: x.name)
+
+        # find which clients haven't submitted
+        self._check_portfolio_status()
+    def _load_files(self, fls, zf, _client = None):
         for fl in fls:
-            client = self._parse(fl)       # get corresponding client
+            # regular files
+            #if not _client:
+            client = self._parse(fl) if not _client else _client
+
+            # treat zipfiles recursively
+            if fl.lower().endswith('.zip'):
+                if zf is None:
+                    zf2 = zipfile.ZipFile(fl)
+                else:
+                    zf2 = zipfile.ZipFile(BytesIO(zf.read(fl)))
+                fls2 = [fl2.filename for fl2 in zf2.filelist]
+                self._load_files(fls2, zf2, client)
+                continue
 
             # fuzzy string matching because people can't follow instructions
             ratios = [_check_fuzzy_ratio(fl, expect) for expect in self._expecting]
@@ -520,39 +541,13 @@ class Project(object):
                     client.files.update({fl0:_File(fl, zf, self)})            # save file information
                     client.files[fl0]._fuzzy_match = max(ratios)
             
-            # check if zipfile submission
-            elif fl.lower().endswith('.zip'):
-                if self._projdir is not None:
-                    zf2 = zipfile.ZipFile(fl)
-                else:
-                    zf2 = zipfile.ZipFile(BytesIO(zf.read(fl)))
-                fls2 = [fl2.filename for fl2 in zf2.filelist]
-                for fl2 in fls2:
-                    ratios = [_check_fuzzy_ratio(fl2, expect) for expect in self._expecting]
-                    if max(ratios)>75:
-                        # check if not already an existing file with a (higher) fuzzy match
-                        fl0 = self._expecting[np.argmax(ratios)]
-                        if fl0 in client.files.keys():
-                            if max(ratios) > client.files[fl0]._fuzzy_match:
-                                client.files[fl0] = _File(fl2, zf2, self)
-                                client.files[fl0]._fuzzy_match = max(ratios)
-                        else:
-                            client.files.update({fl0:_File(fl2, zf2, self)})            # save file information
-                            client.files[fl0]._fuzzy_match = max(ratios)
-
             # check if ignorable
             else:
                 self._ignore(fl)
-
-        # sort clients alphabetically 
-        self.clientlist = sorted(self.clientlist, key = lambda x: x.name)
-
-        # find which clients haven't submitted
-        self._check_portfolio_status()
     def _parse(self, fl):
         ''' Return client object corresponding to file name.
         '''
-        name = fl.split(os.sep)[-1].split('_')[0]
+        name = re.split(r'/|\\',fl)[-1].split('_')[0]
         try:
             return self.client[name]
         except KeyError:
@@ -596,6 +591,7 @@ class Project(object):
     def _check_portfolio_status(self):
         ''' Compile portfolio completeness information.
         '''
+        self.portfolio_status = {'complete':[],'partial':[],'absent':[]}
         # clients with absent portfolios (if cohort info available)
         if self._cohort is not None:
             submitted = self.client.keys()
@@ -705,6 +701,9 @@ class Project(object):
             written_name = False
             # extract lines filtered by file or routine
             for fln,fli in cl.files.items():
+                # skip non text files
+                if not hasattr(fli, 'lns'):
+                    continue
                 written_file = False
                 # logic to narrow search field
                 if fl is None:
@@ -1036,6 +1035,14 @@ class Project(object):
             prior_routine = routine
             self._new_fl(matches, routine)
 
+        # determine function type and eligibility
+        fl, obj, func = self._split_at_delimiter(routine)
+        fl1, obj1, func1 = self._split_at_delimiter(prior_routine, prior_project)
+        
+        # get routine name
+        funcname =  obj + '.' + func if obj is not None else func
+        funcname1 =  obj1 + '.' + func1 if obj1 is not None else func1
+
         # load template file
         if template is not None:
             assert os.path.isfile(template), 'cannot find template file {:s}'.format(template)
@@ -1045,7 +1052,7 @@ class Project(object):
                 # open temporary zipfile, save and load
                 try:
                     tmpfl = '_{:d}.zip'.format(np.random.randint(999999))
-                    tmpzip = 'template_'+template.split(os.sep)[-1]
+                    tmpzip = 'template_'+re.split(r'/|\\',template)[-1]
                     shutil.copyfile(template,tmpzip)
                     with zipfile.ZipFile(tmpfl, 'w') as zf:
                         zf.write(tmpzip)
@@ -1055,8 +1062,8 @@ class Project(object):
                     os.remove(tmpfl)
                     os.remove(tmpzip)
                 if len(matches)>1:
-                    temp_proj._new_fl(matches, routine)
-                template = temp_proj.client['template'].files[routine]
+                    temp_proj._new_fl(matches, fl)
+                template = temp_proj.client['template'].files[fl]
             elif ext == 'py':
                 template = PythonFile(template, zipfile=None)
                 if template._tree == -1:
@@ -1086,14 +1093,6 @@ class Project(object):
             c.metric = metric
         c.routine = routine
         c.prior_routine = prior_routine
-
-        # determine function type and eligibility
-        fl, obj, func = self._split_at_delimiter(routine)
-        fl1, obj1, func1 = self._split_at_delimiter(prior_routine, prior_project)
-        
-        # get routine name
-        funcname =  obj + '.' + func if obj is not None else func
-        funcname1 =  obj1 + '.' + func1 if obj1 is not None else func1
 
         for cl in self.clientlist:
             try:
@@ -1856,7 +1855,7 @@ def _check_fuzzy_ratio(fl, expect):
     if flext.lower() != expect_ext.lower():
         return 0
     else:
-        return fuzz.partial_ratio(expect.lower(), fl.lower())
+        return fuzz.partial_ratio(expect.lower(), fl.lower()) + fuzz.ratio(expect.lower(), fl.lower())/100
 def _run_tests(ncpus, pars, timeout):
     ''' Logic for queueing and running tests.
     '''
