@@ -1095,7 +1095,7 @@ class Project(object):
         if len(fl_matches)>1:
             routine = routine.replace('*','_')
             prior_routine = routine
-            self._new_fl(matches, routine)
+            self._new_fl(fl_matches, routine)
 
         # determine function type and eligibility
         fl, obj, func = self._split_at_delimiter(routine)
@@ -1104,34 +1104,6 @@ class Project(object):
         # get routine name
         funcname =  obj + '.' + func if obj is not None else func
         funcname1 =  obj1 + '.' + func1 if obj1 is not None else func1
-
-        # load template file
-        if template is not None:
-            assert os.path.isfile(template), 'cannot find template file {:s}'.format(template)
-            
-            ext = template.split('.')[-1]
-            if ext == 'zip':
-                # open temporary zipfile, save and load
-                try:
-                    tmpfl = '_{:d}.zip'.format(np.random.randint(999999))
-                    tmpzip = 'template_'+re.split(r'/|\\',template)[-1]
-                    shutil.copyfile(template,tmpzip)
-                    with zipfile.ZipFile(tmpfl, 'w') as zf:
-                        zf.write(tmpzip)
-                    temp_proj = Project(tmpfl, expecting=self._expecting)
-                finally:
-                    # delete temporary zipfiles
-                    os.remove(tmpfl)
-                    os.remove(tmpzip)
-                if len(matches)>1:
-                    temp_proj._new_fl(matches, fl)
-                template = temp_proj.client['template'].files[fl]
-            elif ext == 'py':
-                template = PythonFile(template, zipfile=None)
-                if template._tree == -1:
-                    raise UnicityError("Cannot perform compare due to syntax errors in \'{:s}\' - see below:\n\n{:s}".format(template.filename, template._tree_err))
-            elif ext == 'm':
-                template = MATLABFile(template, zipfile=None)
 
         # preparation for prior project
         if prior_project is not None:
